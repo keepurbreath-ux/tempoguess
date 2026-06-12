@@ -485,7 +485,20 @@ function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a
 const esc = s => String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 /* ============ HAPTICS & SOUND ============ */
-function buzz(p){ if(S.settings.haptics && navigator.vibrate) try{navigator.vibrate(p)}catch(e){} }
+const CAP = () => (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) ? window.Capacitor : null;
+function buzz(p){
+  if(!S.settings.haptics) return;
+  const C=CAP();
+  if(C){ // native iOS: real UIKit haptics via Capacitor
+    try{
+      const H=C.Plugins.Haptics;
+      if(Array.isArray(p)&&p.length>=4) H.notification({type:'SUCCESS'});
+      else H.impact({style:Array.isArray(p)?'HEAVY':(p>=25?'MEDIUM':'LIGHT')});
+    }catch(e){}
+    return;
+  }
+  if(navigator.vibrate) try{navigator.vibrate(p)}catch(e){}
+}
 let AC=null;
 const SOUNDPACKS = {
   classic:{wave:'sine', mult:1, name:'Classic'},
@@ -1304,6 +1317,8 @@ function genShare(fmt){
       if(navigator.canShare&&navigator.canShare({files:[file]})){ await navigator.share({files:[file],text}); toast('Shared!','📣'); return; }
     }catch(e){}
     try{ if(navigator.share){ await navigator.share({text}); toast('Shared!','📣'); return; } }catch(e){}
+    const C=CAP();
+    if(C){ try{ await C.Plugins.Share.share({title:'TempoGuess',text}); toast('Shared!','📣'); return; }catch(e){} }
     const a=document.createElement('a'); a.href=c.toDataURL('image/png'); a.download='tempoguess-result.png'; a.click();
     try{ await navigator.clipboard.writeText(text); }catch(e){}
     toast('Card saved + text copied 📋','📤',3000);

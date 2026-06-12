@@ -1,0 +1,11 @@
+{
+  "appId": "com.keepurbreath.tempoguess",
+  "appName": "TempoGuess",
+  "webDir": "www",
+  "backgroundColor": "#0a0a16",
+  "ios": {
+    "contentInset": "never",
+    "backgroundColor": "#0a0a16",
+    "preferredContentMode": "mobile"
+  }
+}

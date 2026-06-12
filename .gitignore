@@ -1,2 +1,7 @@
 .claude/
 .DS_Store
+node_modules/
+ios/App/Pods/
+ios/DerivedData/
+ios/App/App.xcworkspace/xcuserdata/
+ios/App/App.xcodeproj/xcuserdata/

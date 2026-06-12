@@ -1,0 +1,28 @@
+{
+  "name": "hit-the-time",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/keepurbreath-ux/tempoguess.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/keepurbreath-ux/tempoguess/issues"
+  },
+  "homepage": "https://github.com/keepurbreath-ux/tempoguess#readme",
+  "dependencies": {
+    "@capacitor/cli": "^8.4.0",
+    "@capacitor/core": "^8.4.0",
+    "@capacitor/haptics": "^8.0.2",
+    "@capacitor/ios": "^8.4.0",
+    "@capacitor/share": "^8.0.1"
+  }
+}
