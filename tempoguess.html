@@ -197,6 +197,9 @@ button{font-family:inherit;color:inherit;border:none;background:none;cursor:poin
 .btnrow{display:flex;gap:10px}
 .btnrow .btn{flex:1}
 .pbflag{text-align:center;color:var(--good);font-weight:800;font-size:13px;margin-bottom:8px}
+.verdict{text-align:center;font-weight:900;font-size:16px;padding:11px 16px;border-radius:15px;margin:8px 0 2px;animation:popIn .4s var(--spring)}
+.verdict.win{color:var(--good);background:color-mix(in srgb,var(--good) 16%,transparent);border:1px solid color-mix(in srgb,var(--good) 35%,transparent)}
+.verdict.lose{color:var(--gold);background:color-mix(in srgb,var(--gold) 14%,transparent);border:1px solid color-mix(in srgb,var(--gold) 30%,transparent)}
 
 /* rounds list (rush) */
 .roundlist{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin:10px 0 4px}
@@ -501,6 +504,58 @@ function buzz(p){
   }
   if(navigator.vibrate) try{navigator.vibrate(p)}catch(e){}
 }
+
+/* ============ LOCAL NOTIFICATIONS (native retention) ============ */
+// no-op on web. Double opt-in: the OS prompt fires ONLY on an explicit user tap
+// (settings toggle or the soft pre-prompt). Launch never touches the OS APIs —
+// it only (re)schedules when we already know permission was granted (S.notifsOn).
+async function ensureNotifPermission(){ // explicit user intent only
+  const C=CAP(); if(!C) return false;
+  try{
+    const LN=C.Plugins.LocalNotifications;
+    let st=await LN.checkPermissions();
+    if(st.display==='prompt'||st.display==='prompt-with-rationale'){ st=await LN.requestPermissions(); }
+    const ok=st.display==='granted';
+    S.notifsOn=ok; save();
+    return ok;
+  }catch(e){ return false; }
+}
+async function scheduleReminders(){ // assumes permission already granted (S.notifsOn)
+  const C=CAP(); if(!C || !S.settings.notifs || !S.notifsOn) return;
+  try{
+    const LN=C.Plugins.LocalNotifications;
+    await LN.cancel({notifications:[{id:1},{id:2},{id:3}]});
+    const streakMsg = S.streak.cur>0
+      ? `🔥 Your ${S.streak.cur}-day streak is waiting — play one round to keep it alive!`
+      : `🎯 Today's TempoGuess challenge is live. Got the perfect timing?`;
+    await LN.schedule({notifications:[
+      {id:1,title:'TempoGuess',body:streakMsg,schedule:{on:{hour:19,minute:30},allowWhileIdle:true}},
+      {id:2,title:'Daily Challenge 📅',body:'A fresh target dropped — one shot to climb the global ranks!',schedule:{on:{hour:11,minute:0},allowWhileIdle:true}},
+    ]});
+  }catch(e){}
+}
+async function disableReminders(){
+  const C=CAP(); if(!C) return;
+  try{ await C.Plugins.LocalNotifications.cancel({notifications:[{id:1},{id:2},{id:3}]}); }catch(e){}
+}
+// soft pre-prompt shown once, after the player has a couple of games in.
+// Never calls the OS APIs — just shows our own modal; the real prompt waits for the button tap.
+function maybeAskNotifs(){
+  if(!CAP() || S.notifAsked || S.notifsOn || !S.settings.notifs || S.gamesPlayed<2) return;
+  if($('modal2').classList.contains('open') || $('sheetwrap').classList.contains('open')) return;
+  S.notifAsked=true; save();
+  openModal2(`
+    <div style="text-align:center"><span style="font-size:48px">🔔</span></div>
+    <div class="mtitle" style="text-align:center">Keep your streak alive?</div>
+    <p class="sub" style="text-align:center;margin-bottom:16px">Get one friendly daily nudge so your streak never slips and you never miss a Daily Challenge.</p>
+    <button class="btn btn-grad" onclick="enableNotifsFromPrompt()">Yes, remind me 🔥</button>
+    <button class="btn" style="color:var(--muted);font-size:13px;margin-top:6px" onclick="closeModal2()">No thanks</button>`);
+}
+async function enableNotifsFromPrompt(){
+  closeModal2();
+  const ok=await ensureNotifPermission();
+  if(ok){ S.settings.notifs=true; save(); scheduleReminders(); toast('Reminders on — see you tomorrow!','🔔'); }
+}
 let AC=null;
 const SOUNDPACKS = {
   classic:{wave:'sine', mult:1, name:'Classic'},
@@ -536,7 +591,7 @@ const sfx = {
 /* ============ STATE ============ */
 const SKEY='tempoguess_v1';
 const DEFAULTS = {
-  name:'Player', onboarded:false, premium:false, installDay:todayStr(),
+  name:'Player', onboarded:false, premium:false, installDay:todayStr(), notifAsked:false, notifsOn:false,
   totalScore:0, gamesPlayed:0, sumAcc:0, bestDiff:null, bestScore:0, perfects:0, rushBest:0, shares:0, diamondRow:0, playsSinceAd:0,
   totalXP:0, dailyWins:0, dailyTop10:0,
   streak:{cur:0,longest:0,last:null},
@@ -547,7 +602,7 @@ const DEFAULTS = {
   world:{key:null,done:false,pct:0},
   quests:{date:null,list:[]},
   equipped:{theme:'aurora',avatar:'⏱️',border:'none',sound:'classic',button:'glass',badge:null,fx:'confetti'},
-  settings:{haptics:true,sound:true,appearance:'auto',motion:'full'},
+  settings:{haptics:true,sound:true,appearance:'auto',motion:'full',notifs:true},
   analytics:{sessions:0,timeSec:0,adsShown:0,adsDone:0,events:[]},
 };
 function deepMerge(base,over){ const o={...base}; for(const k in over){ if(over[k]&&typeof over[k]==='object'&&!Array.isArray(over[k])&&base[k]&&typeof base[k]==='object'&&!Array.isArray(base[k])) o[k]=deepMerge(base[k],over[k]); else o[k]=over[k]; } return o; }
@@ -641,7 +696,7 @@ function go(name){
   $('tabbar').style.display = inGame?'none':'flex';
   updateBanner(inGame);
   buzz(8); sfx.tap();
-  if(name==='home') renderHome();
+  if(name==='home'){ renderHome(); setTimeout(maybeAskNotifs,800); }
   if(name==='daily') renderDaily();
   if(name==='profile') renderProfile();
   if(name==='locker') renderLocker();
@@ -872,6 +927,7 @@ function startGame(modeId,opts={}){
     players:opts.players||null, pIdx:0,
     alive:opts.players?opts.players.map((p,i)=>i):null,
     mpRound:1, mpResults:[],
+    challenge:opts.challenge||null,
     running:false, locked:false, blindTimer:null,
   };
   go('game');
@@ -920,9 +976,23 @@ function handleStop(actual){
   const score=scoreFor(diff);
   const rank=rankFor(diff);
   if(s.kind==='practice'){ finishPractice(actual,diff,score,rank); }
+  else if(s.kind==='challenge'){ finishChallenge(actual,diff,score,rank); }
   else if(s.kind==='solo'||s.kind==='daily'||s.kind==='world'){ finishSolo(actual,diff,score,rank); }
   else if(s.kind==='rush'){ rushRound(actual,diff,score,rank); }
   else { mpTurnDone(actual,diff,score,rank); }
+}
+
+/* ---- challenge (beat a friend's shared link) ---- */
+function finishChallenge(actual,diff,score,rank){
+  const s=session, ch=s.challenge;
+  S.playsSinceAd++;
+  const rec=recordGame('classic',s.target,actual,diff,score);
+  const tie=Math.abs(diff-ch.diff)<0.005, won=diff<ch.diff;
+  const verdict = tie ? `🤝 Dead heat with ${esc(ch.by)}!`
+    : won ? `🏆 You beat ${esc(ch.by)} by ${fmtS(ch.diff-diff)}s!`
+          : `😤 ${esc(ch.by)} won by ${fmtS(diff-ch.diff)}s`;
+  const extra=`<div class="resrow" style="animation-delay:.45s"><span class="rl">${esc(ch.by)}'s result</span><span class="rv">${fmtS(ch.diff)}s off</span></div>`;
+  showResults({target:s.target,actual,diff,score,rank,xp:rec.xp,pb:rec.pb,extra,mode:'classic',kind:'challenge',verdict,verdictWin:won||tie});
 }
 
 /* ---- solo / daily / world ---- */
@@ -1164,13 +1234,17 @@ function coachText(){
 function showResults(r){
   lastResult=r; xpDoubled=false;
   const early = r.actual<r.target;
-  const replay = r.kind==='solo' ? `<button class="btn btn-grad" onclick="closeSheet();maybeAd(()=>startGame('${r.mode}',{kind:'${r.mode==='rush'?'rush':'solo'}'}))">Play Again</button>`
+  const replay = r.kind==='challenge'
+    ? `<button class="btn btn-grad" onclick="closeSheet();maybeAd(()=>startGame('classic',{kind:'solo'}))">Play On 🎯</button>`
+    : r.kind==='solo' ? `<button class="btn btn-grad" onclick="closeSheet();maybeAd(()=>startGame('${r.mode}',{kind:'${r.mode==='rush'?'rush':'solo'}'}))">Play Again</button>`
     : `<button class="btn btn-grad" onclick="closeSheet();maybeAd(()=>go('home'))">Done</button>`;
   const adBtn = (!S.premium&&r.xp>0)?`<button class="btn btn-ghost" id="btn-2x" onclick="watchAd()">🎬 Watch ad — 2× XP (+${r.xp})</button>`:'';
+  const verdict = r.verdict ? `<div class="verdict ${r.verdictWin?'win':'lose'}">${r.verdict}</div>` : '';
   openSheet(`
     <div class="grab"></div>
     <div class="rankbig"><span class="remoji">${r.rank.emoji}</span><div class="rankname">${r.rank.name}</div></div>
     <div class="nearmiss">${nearMissText(r.diff,r.rank)}</div>
+    ${verdict}
     ${r.pb?'<div class="pbflag">🏅 NEW PERSONAL BEST</div>':''}
     <div class="scorebig"><div class="scorenum" id="cnt-score">0</div><div class="scorelbl">SCORE / 1000</div></div>
     <div class="resrows">
@@ -1184,6 +1258,7 @@ function showResults(r){
     <div class="coach">${coachText()}</div>
     <div class="sheetbtns">
       ${adBtn}
+      <button class="btn btn-ghost" onclick="copyChallenge()">🔗 Challenge a friend</button>
       <div class="btnrow">
         <button class="btn btn-ghost" onclick="shareResult()">📤 Share</button>
         ${replay}
@@ -1327,7 +1402,7 @@ function genShare(fmt){
   T(L.user,`${esc(S.name)} · Level ${curLevel()} ${titleFor(curLevel())}`,'rgba(255,255,255,.5)','600');
   T(L.cta,'Can you beat me? 🎯','#fff','800');
   S.shares++; checkAch(); save(); track('share',{fmt});
-  const text=`TempoGuess 🎯\nTarget: ${fmtTarget(r.target)} sec\nMy Time: ${r.actual.toFixed(2)} sec\nDifference: ${fmtS(r.diff)} sec\nScore: ${r.score} ${r.rank.emoji} ${r.rank.name}\nCan you beat me?`;
+  const text=`TempoGuess 🎯\nTarget: ${fmtTarget(r.target)} sec\nMy Time: ${r.actual.toFixed(2)} sec\nDifference: ${fmtS(r.diff)} sec\nScore: ${r.score} ${r.rank.emoji} ${r.rank.name}\nCan you beat me? ${challengeURL(r)}`;
   c.toBlob(async blob=>{
     try{
       const file=new File([blob],'tempoguess.png',{type:'image/png'});
@@ -1340,6 +1415,62 @@ function genShare(fmt){
     try{ await navigator.clipboard.writeText(text); }catch(e){}
     toast('Card saved + text copied 📋','📤',3000);
   },'image/png');
+}
+
+/* ============ CHALLENGE LINKS (virality) ============ */
+function challengeURL(r){
+  const base=location.origin+location.pathname;
+  return `${base}?c=${fmtTarget(r.target)}&d=${r.diff}&by=${encodeURIComponent(S.name)}`;
+}
+async function copyChallenge(){
+  if(!lastResult) return;
+  const url=challengeURL(lastResult);
+  const text=`I scored ${lastResult.score} on TempoGuess 🎯 (${fmtS(lastResult.diff)}s off ${fmtTarget(lastResult.target)}s). Can you beat me? ${url}`;
+  S.shares++; checkAch(); save(); track('challenge_link');
+  const C=CAP();
+  try{
+    if(C){ await C.Plugins.Share.share({title:'TempoGuess Challenge',text,url}); toast('Challenge sent!','⚔️'); return; }
+    if(navigator.share){ await navigator.share({text}); toast('Challenge sent!','⚔️'); return; }
+    await navigator.clipboard.writeText(text); toast('Challenge link copied — paste it anywhere!','🔗',3200);
+  }catch(e){
+    try{ await navigator.clipboard.writeText(text); toast('Challenge link copied!','🔗',3000); }catch(e2){ toast('Could not copy link','⚠️'); }
+  }
+}
+function parseChallenge(){
+  try{
+    const p=new URLSearchParams(location.search);
+    if(!p.has('c')) return null;
+    const c=parseFloat(p.get('c')), d=parseFloat(p.get('d')), by=((p.get('by')||'A friend').trim()||'A friend').slice(0,16);
+    if(!Number.isFinite(c)||c<1||c>60) return null;
+    if(!Number.isFinite(d)||d<0||d>60) return null;
+    return {target:+c.toFixed(1), diff:+d.toFixed(3), by};
+  }catch(e){ return null; }
+}
+let activeChallenge=null, pendingChallenge=null;
+function showChallengeIntro(ch){
+  activeChallenge=ch;
+  openModal2(`
+    <div style="text-align:center"><span style="font-size:50px">⚔️</span></div>
+    <div class="mtitle" style="text-align:center">${esc(ch.by)} challenged you!</div>
+    <p class="sub" style="text-align:center;margin-bottom:14px">Same target. Closest to the time wins.</p>
+    <div class="resrows" style="margin:0 0 16px">
+      <div class="resrow"><span class="rl">Target</span><span class="rv">${fmtTarget(ch.target)} s</span></div>
+      <div class="resrow"><span class="rl">${esc(ch.by)} was</span><span class="rv">${fmtS(ch.diff)}s off</span></div>
+    </div>
+    <button class="btn btn-grad" onclick="acceptChallenge()">Accept Challenge ⚔️</button>
+    <button class="btn" style="color:var(--muted);font-size:13px;margin-top:6px" onclick="closeModal2()">Maybe later</button>`);
+  track('challenge_view');
+}
+function acceptChallenge(){
+  const ch=activeChallenge; if(!ch) return;
+  closeModal2();
+  startGame('classic',{kind:'challenge',target:ch.target,challenge:ch});
+}
+function clearChallengeURL(){ try{ history.replaceState(null,'',location.pathname); }catch(e){} }
+// after onboarding / launch: a pending challenge takes priority over the login reward
+function afterEntry(loginDelay){
+  if(pendingChallenge){ const c=pendingChallenge; pendingChallenge=null; setTimeout(()=>showChallengeIntro(c),450); return; }
+  if(S.login.last!==todayStr()) setTimeout(claimLogin,loginDelay);
 }
 
 /* ============ DAILY BOARD (seeded bots) ============ */
@@ -1604,6 +1735,7 @@ function openSettings(){
     <div class="setrow"><div><div class="sn">Haptic Feedback</div><div class="sd">Vibration on supported devices</div></div><button class="toggle ${S.settings.haptics?'on':''}" onclick="setSet('haptics',!S.settings.haptics)"></button></div>
     <div class="setrow"><div><div class="sn">Sound Effects</div><div class="sd">Pack: ${SOUNDPACKS[S.equipped.sound].name}</div></div><button class="toggle ${S.settings.sound?'on':''}" onclick="setSet('sound',!S.settings.sound)"></button></div>
     <div class="setrow"><div><div class="sn">Reduce Motion</div><div class="sd">Calmer animations</div></div><button class="toggle ${S.settings.motion==='reduce'?'on':''}" onclick="setSet('motion',S.settings.motion==='reduce'?'full':'reduce')"></button></div>
+    <div class="setrow"><div><div class="sn">Daily Reminders</div><div class="sd">Streak &amp; challenge nudges${CAP()?'':' (in the app)'}</div></div><button class="toggle ${S.settings.notifs?'on':''}" onclick="toggleNotifs()"></button></div>
     <div class="setrow"><div><div class="sn">TempoGuess Pro</div><div class="sd">${S.premium?'Active — thank you! 💜':'Remove ads + exclusives'}</div></div>${S.premium?'<span class="prembadge">ACTIVE</span>':'<button class="btn btn-grad btn-sm" onclick="closeModal();openPremium()">Upgrade</button>'}</div>
     <div class="setrow"><div><div class="sn">Replay Tutorial</div></div><button class="btn btn-ghost btn-sm" onclick="closeModal();startOnboarding()">Play</button></div>
     <div class="setrow"><div><div class="sn">Export Save</div><div class="sd">Back up progress or move devices</div></div><button class="btn btn-ghost btn-sm" onclick="exportSave()">Export</button></div>
@@ -1613,6 +1745,18 @@ function openSettings(){
     <button class="btn btn-grad" style="margin-top:12px" onclick="closeModal()">Done</button>`);
 }
 function setSet(k,v){ S.settings[k]=v; save(); applyLook(); openSettings(); sfx.tap(); }
+async function toggleNotifs(){
+  sfx.tap();
+  const turningOn=!S.settings.notifs;
+  if(turningOn && CAP()){
+    const ok=await ensureNotifPermission();
+    if(!ok){ toast('Enable notifications in iOS Settings to get reminders','🔔',3400); return; }
+  }
+  S.settings.notifs=turningOn; save();
+  if(turningOn){ scheduleReminders(); if(CAP()) toast('Daily reminders on — see you tomorrow!','🔔'); }
+  else { disableReminders(); }
+  openSettings();
+}
 /* save backup codes: TG1.<base64 json>.<checksum> — checksum blocks casual tampering */
 function saveCode(){ const json=JSON.stringify(S); return 'TG1.'+btoa(unescape(encodeURIComponent(json)))+'.'+hashStr(json).toString(36); }
 function exportSave(){
@@ -1713,7 +1857,7 @@ function endOb(){
   $('onboard').classList.remove('active');
   $('tabbar').style.display='flex'; updateBanner(false);
   go('home');
-  if(S.login.last!==todayStr()) setTimeout(claimLogin,600);
+  afterEntry(600);
 }
 /* ---- practice round (a guided first game that doesn't count) ---- */
 function startPractice(){
@@ -1744,7 +1888,7 @@ function endPractice(){
   closeSheet();
   $('tabbar').style.display='flex'; updateBanner(false);
   go('home');
-  if(S.login.last!==todayStr()) setTimeout(claimLogin,500);
+  afterEntry(500);
 }
 
 /* ============ KEYBOARD (desktop) ============ */
@@ -1765,8 +1909,11 @@ function init(){
   ensureQuests();
   renderHome(); updateBanner(false);
   sizeFx();
+  pendingChallenge=parseChallenge();
+  if(pendingChallenge) clearChallengeURL();
   if(!S.onboarded){ startOnboarding(); }
-  else if(S.login.last!==todayStr()){ setTimeout(claimLogin,650); }
+  else { afterEntry(650); }
+  if(CAP() && S.settings.notifs && S.notifsOn) setTimeout(scheduleReminders,1500); // refresh reminders only if already granted
   save();
 }
 init();
