@@ -640,7 +640,11 @@ const UNLOCKS = [
   {pro:true,type:'theme',id:'obsidian'},{pro:true,type:'theme',id:'prism'},{pro:true,type:'border',id:'royalty'},{pro:true,type:'avatar',id:'👑'},{pro:true,type:'fx',id:'starfall'},
 ];
 function curLevel(){ return levelFromXP(S.totalXP).level }
-function isUnlocked(u){ return u.pro ? S.premium : curLevel()>=u.lvl }
+// v1 ships FREE with no in-app purchase (Apple won't accept a mock purchase).
+// Flip IAP_ENABLED=true and wire real StoreKit to bring back the paid Pro tier in v1.1.
+const IAP_ENABLED = false;
+function hasPro(){ return IAP_ENABLED ? S.premium : true; } // free v1: everyone gets the Pro perks
+function isUnlocked(u){ return u.pro ? hasPro() : curLevel()>=u.lvl }
 function unlocksAt(l){ return UNLOCKS.filter(u=>u.lvl===l) }
 
 /* ============ GAME MODES ============ */
@@ -702,7 +706,7 @@ function go(name){
   if(name==='locker') renderLocker();
 }
 document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>go(t.dataset.go)));
-function updateBanner(inGame){ $('banner').style.display = (S.premium||inGame||curScreen==='game')?'none':'flex'; }
+function updateBanner(inGame){ $('banner').style.display = (hasPro()||inGame||curScreen==='game')?'none':'flex'; }
 
 /* ============ TOASTS ============ */
 function toast(msg,icon='✨',ms=2600){
@@ -843,7 +847,7 @@ function bumpStreak(){
   else {
     // premium streak freeze: forgive a single missed day
     const y2=todayStr(new Date(Date.now()-2*864e5));
-    if(S.premium && S.streak.last===y2){ S.streak.cur++; toast('Streak Freeze used — streak saved!','🧊'); }
+    if(hasPro() && S.streak.last===y2){ S.streak.cur++; toast('Streak Freeze used — streak saved!','🧊'); }
     else S.streak.cur=1;
   }
   S.streak.last=t;
@@ -1238,7 +1242,7 @@ function showResults(r){
     ? `<button class="btn btn-grad" onclick="closeSheet();maybeAd(()=>startGame('classic',{kind:'solo'}))">Play On 🎯</button>`
     : r.kind==='solo' ? `<button class="btn btn-grad" onclick="closeSheet();maybeAd(()=>startGame('${r.mode}',{kind:'${r.mode==='rush'?'rush':'solo'}'}))">Play Again</button>`
     : `<button class="btn btn-grad" onclick="closeSheet();maybeAd(()=>go('home'))">Done</button>`;
-  const adBtn = (!S.premium&&r.xp>0)?`<button class="btn btn-ghost" id="btn-2x" onclick="watchAd()">🎬 Watch ad — 2× XP (+${r.xp})</button>`:'';
+  const adBtn = (!hasPro()&&r.xp>0)?`<button class="btn btn-ghost" id="btn-2x" onclick="watchAd()">🎬 Watch ad — 2× XP (+${r.xp})</button>`:'';
   const verdict = r.verdict ? `<div class="verdict ${r.verdictWin?'win':'lose'}">${r.verdict}</div>` : '';
   openSheet(`
     <div class="grab"></div>
@@ -1286,7 +1290,7 @@ const FAKE_ADS=[
 ];
 let pendingAfterAd=null;
 function maybeAd(fn){
-  if(!S.premium && S.playsSinceAd>=3){
+  if(!hasPro() && S.playsSinceAd>=3){
     S.playsSinceAd=0; save();
     showInterstitial(fn);
   } else fn();
@@ -1333,6 +1337,7 @@ function watchAd(){
   },1000);
 }
 function openPremium(){
+  if(!IAP_ENABLED) return; // no purchases in free v1
   if(S.premium){ toast('You already have Pro. Thank you! 💜','⭐'); return; }
   openModal2(`
     <div style="text-align:center"><span style="font-size:46px">⭐</span></div>
@@ -1654,7 +1659,7 @@ function renderProfile(){
   }).join('');
   // advanced stats (pro)
   const adv=$('adv-stats'), at=$('adv-title');
-  if(S.premium){
+  if(hasPro()){
     at.style.display='block'; adv.style.display='block';
     const mp=Object.entries(S.modePlays).sort((a,b)=>b[1]-a[1]).slice(0,5);
     const mx=mp.length?mp[0][1]:1;
@@ -1698,7 +1703,7 @@ function lockerSection(title,type,renderChip){
   }).join('')}</div>`;
 }
 function renderLocker(){
-  $('locker-pro-btn').style.display=S.premium?'none':'flex';
+  $('locker-pro-btn').style.display=(!IAP_ENABLED||S.premium)?'none':'flex';
   const lockLbl=u=>u.pro?`<div class="lvlreq">PRO</div>`:`<div class="lvlreq">LV ${u.lvl}</div>`;
   let html='';
   html+=lockerSection('Avatars','avatar',(u,un,on)=>`<button class="chip ${on?'on':''} ${un?'':'lock'}" onclick="equip('avatar','${u.id}',${un})"><span>${u.id}</span>${un?'':lockLbl(u)}</button>`);
@@ -1736,7 +1741,7 @@ function openSettings(){
     <div class="setrow"><div><div class="sn">Sound Effects</div><div class="sd">Pack: ${SOUNDPACKS[S.equipped.sound].name}</div></div><button class="toggle ${S.settings.sound?'on':''}" onclick="setSet('sound',!S.settings.sound)"></button></div>
     <div class="setrow"><div><div class="sn">Reduce Motion</div><div class="sd">Calmer animations</div></div><button class="toggle ${S.settings.motion==='reduce'?'on':''}" onclick="setSet('motion',S.settings.motion==='reduce'?'full':'reduce')"></button></div>
     <div class="setrow"><div><div class="sn">Daily Reminders</div><div class="sd">Streak &amp; challenge nudges${CAP()?'':' (in the app)'}</div></div><button class="toggle ${S.settings.notifs?'on':''}" onclick="toggleNotifs()"></button></div>
-    <div class="setrow"><div><div class="sn">TempoGuess Pro</div><div class="sd">${S.premium?'Active — thank you! 💜':'Remove ads + exclusives'}</div></div>${S.premium?'<span class="prembadge">ACTIVE</span>':'<button class="btn btn-grad btn-sm" onclick="closeModal();openPremium()">Upgrade</button>'}</div>
+    ${IAP_ENABLED?`<div class="setrow"><div><div class="sn">TempoGuess Pro</div><div class="sd">${S.premium?'Active — thank you! 💜':'Remove ads + exclusives'}</div></div>${S.premium?'<span class="prembadge">ACTIVE</span>':'<button class="btn btn-grad btn-sm" onclick="closeModal();openPremium()">Upgrade</button>'}</div>`:''}
     <div class="setrow"><div><div class="sn">Replay Tutorial</div></div><button class="btn btn-ghost btn-sm" onclick="closeModal();startOnboarding()">Play</button></div>
     <div class="setrow"><div><div class="sn">Export Save</div><div class="sd">Back up progress or move devices</div></div><button class="btn btn-ghost btn-sm" onclick="exportSave()">Export</button></div>
     <div class="setrow"><div><div class="sn">Import Save</div><div class="sd">Restore from a save code</div></div><button class="btn btn-ghost btn-sm" onclick="importSaveUI()">Import</button></div>
