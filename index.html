@@ -124,6 +124,8 @@ button{font-family:inherit;color:inherit;border:none;background:none;cursor:poin
 .modecard .md{font-size:11.5px;color:var(--muted);font-weight:500;margin-top:2px}
 .modecard.feature{grid-column:1 / -1;display:flex;align-items:center;gap:14px;background:linear-gradient(135deg,color-mix(in srgb,var(--accent) 22%,transparent),color-mix(in srgb,var(--accent3) 10%,transparent)),var(--surface)}
 .modecard.feature .mi{margin:0;font-size:32px}
+.modecard.wide{grid-column:1 / -1;display:flex;align-items:center;gap:14px}
+.modecard.wide .mi{margin:0;font-size:28px}
 .tagdone{position:absolute;top:10px;right:10px;font-size:10px;font-weight:800;background:var(--good);color:#06281c;padding:3px 8px;border-radius:99px}
 .tagnew{position:absolute;top:10px;right:10px;font-size:10px;font-weight:800;background:var(--grad);color:#fff;padding:3px 8px;border-radius:99px}
 
@@ -1371,10 +1373,10 @@ function renderHome(){
       <span class="mi">📅</span><span><span class="mn">Daily Challenge</span><br><span class="md">${dailyDone?`#${S.daily.pos} today · score ${S.daily.score} · come back tomorrow!`:`Today's target: ${dailyTarget(todayStr())} sec · one attempt, world ranking`}</span></span></button>
     <button class="modecard glass feature" onclick="playWorld()">${worldDone?'<span class="tagdone">DONE ✓</span>':''}
       <span class="mi">🌍</span><span><span class="mn">Beat The World</span><br><span class="md">${worldDone?`You beat ${S.world.pct}% this hour · new target at ${(new Date().getHours()+1)%24}:00`:'Hourly global target · how do you rank?'}</span></span></button>`;
-  $('home-modes').innerHTML=['classic','easy','hard','blind','rush'].map(m=>{
+  $('home-modes').innerHTML=['classic','easy','hard','blind'].map(m=>{
     const c=MODES[m];
-    return `<button class="modecard glass" onclick="startGame('${m}',{kind:'${m==='rush'?'rush':'solo'}'})"><span class="mi">${c.icon}</span><span class="mn">${c.name}</span><div class="md">${c.desc}</div></button>`;
-  }).join('');
+    return `<button class="modecard glass" onclick="startGame('${m}',{kind:'solo'})"><span class="mi">${c.icon}</span><span class="mn">${c.name}</span><div class="md">${c.desc}</div></button>`;
+  }).join('')+`<button class="modecard glass wide" onclick="startGame('rush',{kind:'rush'})"><span class="mi">⚡</span><span><span class="mn">Rush</span><div class="md">10 rounds · combo multiplier${S.rushBest?` · your best: ${S.rushBest.toLocaleString()}`:''}</div></span></button>`;
   $('home-party').innerHTML=['battle','standoff'].map(m=>{
     const c=MODES[m];
     return `<button class="modecard glass" onclick="openMpSetup('${m}')"><span class="mi">${c.icon}</span><span class="mn">${c.name}</span><div class="md">${c.desc}</div></button>`;
