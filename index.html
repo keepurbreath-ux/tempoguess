@@ -877,7 +877,9 @@ function renderGameUI(){
   $('g-combo').classList.add('hidden');
   $('g-player').classList.toggle('hidden',!s.players);
   if(s.players){ $('g-player').textContent='🎮 '+s.players[s.pIdx].name+"'s turn"; }
-  $('g-hint').innerHTML = s.cfg.blind
+  $('g-hint').innerHTML = s.kind==='practice'
+    ? `Practice 🎯 Press START, wait about <b>${s.target} seconds</b>, then STOP. This one won't count!`
+    : s.cfg.blind
     ? 'Memorize the target — it disappears 2 seconds after you start!'
     : 'Press START, count in your head, press STOP right on time.';
   s.running=false; s.locked=false;
@@ -906,7 +908,8 @@ function handleStop(actual){
   const diff=+Math.abs(actual-s.target).toFixed(3);
   const score=scoreFor(diff);
   const rank=rankFor(diff);
-  if(s.kind==='solo'||s.kind==='daily'||s.kind==='world'){ finishSolo(actual,diff,score,rank); }
+  if(s.kind==='practice'){ finishPractice(actual,diff,score,rank); }
+  else if(s.kind==='solo'||s.kind==='daily'||s.kind==='world'){ finishSolo(actual,diff,score,rank); }
   else if(s.kind==='rush'){ rushRound(actual,diff,score,rank); }
   else { mpTurnDone(actual,diff,score,rank); }
 }
@@ -1640,43 +1643,88 @@ const OB=[
   {i:'✋',t:'Press Stop',d:'When you believe the exact target time has passed — STOP. Nerves of steel required.'},
   {i:'💎',t:'Get Ranked',d:'Within 0.05s = Diamond and a perfect 1000. Earn XP, unlock themes, climb the world ranks!'},
 ];
-let obIdx=0, obNaming=false;
-function startOnboarding(){ obIdx=0; obNaming=false; $('onboard').classList.add('active'); $('ob-skip').style.display=''; $('tabbar').style.display='none'; $('banner').style.display='none'; renderOb(); }
+let obIdx=0, obPhase='cards'; // 'cards' | 'name' | 'try'
+function startOnboarding(){ obIdx=0; obPhase='cards'; $('onboard').classList.add('active'); $('ob-skip').style.display=''; $('ob-skip').textContent='Skip'; $('tabbar').style.display='none'; $('banner').style.display='none'; renderOb(); }
 function renderOb(){
+  obPhase='cards';
   const s=OB[obIdx];
   $('ob-step').innerHTML=`<span class="obicon">${s.i}</span><div class="obt">${s.t}</div><p class="obd">${s.d}</p>`;
   $('ob-dots').innerHTML=OB.map((_,i)=>`<i class="${i===obIdx?'on':''}"></i>`).join('');
   $('ob-btn').textContent='Next';
+  $('ob-skip').style.display=''; $('ob-skip').textContent='Skip';
 }
 $('ob-btn').addEventListener('click',()=>{ sfx.tap(); buzz(10);
-  if(obNaming){ confirmObName(); }
+  if(obPhase==='name'){ confirmObName(); }
+  else if(obPhase==='try'){ startPractice(); }
   else if(obIdx<OB.length-1){ obIdx++; renderOb(); }
   else showNameStep();
 });
-$('ob-skip').addEventListener('click',showNameStep);
+$('ob-skip').addEventListener('click',()=>{ sfx.tap();
+  if(obPhase==='try'){ endOb(); }       // skip the practice round
+  else { showNameStep(); }              // skip the rest of the cards
+});
 function showNameStep(){
-  if(obNaming) return;
-  obNaming=true;
+  obPhase='name';
   const sugg=['TimeLord','ChronoKid','TickTock','SplitSecond','MsPrecise','SteadyHand'][Math.floor(Math.random()*6)];
   $('ob-step').innerHTML=`<span class="obicon">👋</span><div class="obt">What should we call you?</div>
     <p class="obd">Your name shows on leaderboards and share cards.<br>You can change it anytime in your profile.</p>
     <input class="obname" id="ob-name" maxlength="16" placeholder="${sugg}" value="${S.name!=='Player'?esc(S.name):''}" autocomplete="off" onkeydown="if(event.key==='Enter')document.getElementById('ob-btn').click()">`;
   $('ob-dots').innerHTML='';
-  $('ob-btn').textContent="Start Playing 🚀";
+  $('ob-btn').textContent='Next';
   $('ob-skip').style.display='none';
   setTimeout(()=>{ const i=$('ob-name'); if(i) i.focus(); },300);
 }
 function confirmObName(){
   const i=$('ob-name'), v=i?i.value.trim():'';
   if(v) S.name=v.slice(0,16);
-  endOb();
+  save();
+  showTryStep();
+}
+function showTryStep(){
+  obPhase='try';
+  $('ob-step').innerHTML=`<span class="obicon">🎯</span><div class="obt">Want a quick practice?</div>
+    <p class="obd">Try one round to get the feel for it — no pressure, and it won't count toward your stats.</p>`;
+  $('ob-dots').innerHTML='';
+  $('ob-btn').textContent='Now you try 🎯';
+  $('ob-skip').style.display=''; $('ob-skip').textContent='Skip for now';
 }
 function endOb(){
-  S.onboarded=true; obNaming=false; save();
+  S.onboarded=true; save();
   $('onboard').classList.remove('active');
   $('tabbar').style.display='flex'; updateBanner(false);
   go('home');
   if(S.login.last!==todayStr()) setTimeout(claimLogin,600);
+}
+/* ---- practice round (a guided first game that doesn't count) ---- */
+function startPractice(){
+  S.onboarded=true; save();
+  $('onboard').classList.remove('active');
+  startGame('classic',{kind:'practice',target:3});
+}
+function finishPractice(actual,diff,score,rank){
+  const s=session; session=null;
+  const early=actual<s.target;
+  const msg = diff<=0.4 ? 'Incredible — natural talent! 🎯'
+            : diff<=1.2 ? "Nice — you've got the idea!"
+            : "That's the idea — it gets easier, promise!";
+  openSheet(`
+    <div class="grab"></div>
+    <div class="rankbig"><span class="remoji">${rank.emoji}</span><div class="rankname">Practice Round</div></div>
+    <div class="nearmiss">${msg}</div>
+    <div class="resrows">
+      <div class="resrow"><span class="rl">Target</span><span class="rv">${s.target}.00 s</span></div>
+      <div class="resrow"><span class="rl">You stopped at</span><span class="rv">${actual.toFixed(2)} s</span></div>
+      <div class="resrow"><span class="rl">Off by</span><span class="rv" style="color:${diff<=0.5?'var(--good)':diff<=1?'var(--gold)':'var(--bad)'}">${early?'−':'+'}${fmtS(diff)} s</span></div>
+    </div>
+    <p class="coach">This one didn't count. Now play for real to start earning XP, ranks, and rewards!</p>
+    <div class="sheetbtns"><button class="btn btn-grad" onclick="endPractice()">Start Playing 🚀</button></div>`);
+  celebrate(70); sfx.ok(); buzz([15,25]);
+}
+function endPractice(){
+  closeSheet();
+  $('tabbar').style.display='flex'; updateBanner(false);
+  go('home');
+  if(S.login.last!==todayStr()) setTimeout(claimLogin,500);
 }
 
 /* ============ KEYBOARD (desktop) ============ */
