@@ -616,6 +616,17 @@ function validateResult(target,actual,diff,score){
          Math.abs(Math.abs(actual-target)-diff)<0.002 && score>=0&&score<=1000&&score===scoreFor(diff);
 }
 function randTarget(cfg){ return cfg.min+Math.floor(Math.random()*(cfg.max-cfg.min+1)) }
+// higher-level players get decimal targets — raises the skill ceiling (solo modes only)
+function soloTarget(cfg){
+  let base=randTarget(cfg);
+  const lvl=curLevel();
+  let frac=0;
+  if(lvl>=20 && Math.random()<0.6) frac=(1+Math.floor(Math.random()*9))/10; // .1–.9
+  else if(lvl>=10 && Math.random()<0.5) frac=0.5;
+  if(frac>0 && base>=cfg.max) base-=1;        // keep within range
+  return +(base+frac).toFixed(1);
+}
+function fmtTarget(t){ return Number.isInteger(t) ? String(t) : t.toFixed(1) }
 function dailyTarget(date){ const r=mulberry32(hashStr('TG-daily-'+date)); return 5+Math.floor(r()*11) }
 function worldTarget(key){ const r=mulberry32(hashStr('TG-world-'+key)); return 4+Math.floor(r()*24) }
 
@@ -855,7 +866,7 @@ function startGame(modeId,opts={}){
   const cfg=MODES[modeId];
   session={
     mode:modeId, cfg, kind:opts.kind||'solo',
-    target: opts.target!=null?opts.target:randTarget(cfg),
+    target: opts.target!=null?opts.target:((opts.kind||'solo')==='solo'?soloTarget(cfg):randTarget(cfg)),
     rounds: cfg.rounds||1, round:1,
     totalScore:0, combo:0, maxCombo:0, results:[],
     players:opts.players||null, pIdx:0,
@@ -871,7 +882,7 @@ function renderGameUI(){
   const s=session;
   $('g-modename').textContent = s.cfg.name;
   $('g-round').textContent = s.rounds>1 ? `${s.round}/${s.rounds}` : (s.kind==='standoff'?`R${s.mpRound}`:'');
-  $('g-target').innerHTML = `${s.target}<span class="tunit">sec</span>`;
+  $('g-target').innerHTML = `${fmtTarget(s.target)}<span class="tunit">sec</span>`;
   $('g-targetwrap').classList.remove('veiled');
   const big=$('g-big'); big.textContent='START'; big.classList.remove('stop');
   $('g-combo').classList.add('hidden');
@@ -1142,11 +1153,12 @@ function nearMissText(diff,rank){
   return '';
 }
 function coachText(){
-  if(S.recentErrs.length<8) return '';
+  if(S.recentErrs.length<3) return '';
   const last=S.recentErrs.slice(-10);
   const mean=last.reduce((a,b)=>a+b,0)/last.length;
   if(mean>0.12) return `🧠 Coach: you tend to stop ~${fmtS(mean)}s <b>late</b>. Trust your gut a beat sooner.`;
   if(mean<-0.12) return `🧠 Coach: you tend to stop ~${fmtS(-mean)}s <b>early</b>. Hold your nerve a beat longer.`;
+  if(last.length>=4) return `🧠 Coach: your timing is well-balanced — pure precision from here. 🎯`;
   return '';
 }
 function showResults(r){
@@ -1162,7 +1174,7 @@ function showResults(r){
     ${r.pb?'<div class="pbflag">🏅 NEW PERSONAL BEST</div>':''}
     <div class="scorebig"><div class="scorenum" id="cnt-score">0</div><div class="scorelbl">SCORE / 1000</div></div>
     <div class="resrows">
-      <div class="resrow"><span class="rl">Target Time</span><span class="rv">${r.target}.00 s</span></div>
+      <div class="resrow"><span class="rl">Target Time</span><span class="rv">${r.target.toFixed(2)} s</span></div>
       <div class="resrow"><span class="rl">Your Time</span><span class="rv">${r.actual.toFixed(2)} s</span></div>
       <div class="resrow"><span class="rl">Difference</span><span class="rv" style="color:${r.diff<=0.25?'var(--good)':r.diff<=1?'var(--gold)':'var(--bad)'}">${early?'−':'+'}${fmtS(r.diff)} s</span></div>
       <div class="resrow"><span class="rl">Accuracy</span><span class="rv">${clamp((1-r.diff/Math.max(r.target,.001))*100,0,100).toFixed(1)}%</span></div>
@@ -1310,12 +1322,12 @@ function genShare(fmt){
   T(L.rank,r.rank.name.toUpperCase(),'#fff');
   T(L.score,String(r.score),gg);
   T(L.lbl,'SCORE / 1000','rgba(255,255,255,.55)','700');
-  T(L.times,`Target ${r.target}.00s   ·   Mine ${r.actual.toFixed(2)}s`,'rgba(255,255,255,.85)','600');
+  T(L.times,`Target ${r.target.toFixed(2)}s   ·   Mine ${r.actual.toFixed(2)}s`,'rgba(255,255,255,.85)','600');
   T(L.diff,`Only ${fmtS(r.diff)}s off!`,r.diff<=0.25?'#34d399':'#fbbf24','800');
   T(L.user,`${esc(S.name)} · Level ${curLevel()} ${titleFor(curLevel())}`,'rgba(255,255,255,.5)','600');
   T(L.cta,'Can you beat me? 🎯','#fff','800');
   S.shares++; checkAch(); save(); track('share',{fmt});
-  const text=`TempoGuess 🎯\nTarget: ${r.target} sec\nMy Time: ${r.actual.toFixed(2)} sec\nDifference: ${fmtS(r.diff)} sec\nScore: ${r.score} ${r.rank.emoji} ${r.rank.name}\nCan you beat me?`;
+  const text=`TempoGuess 🎯\nTarget: ${fmtTarget(r.target)} sec\nMy Time: ${r.actual.toFixed(2)} sec\nDifference: ${fmtS(r.diff)} sec\nScore: ${r.score} ${r.rank.emoji} ${r.rank.name}\nCan you beat me?`;
   c.toBlob(async blob=>{
     try{
       const file=new File([blob],'tempoguess.png',{type:'image/png'});
@@ -1483,7 +1495,13 @@ function renderProfile(){
     [S.bestScore,'Best Score'],[S.bestDiff===null?'—':fmtS(S.bestDiff)+'s','Best Accuracy'],
     [S.dailyWins,'Daily Wins'],[S.totalScore.toLocaleString(),'Total Score'],
   ];
-  $('prof-stats').innerHTML=tiles.map(t=>`<div class="stattile glass"><div class="sv">${t[0]}</div><div class="sl">${t[1]}</div></div>`).join('');
+  const emptyHero = S.gamesPlayed===0 ? `<div class="stattile glass" style="grid-column:1/-1;text-align:center;padding:22px 16px;background:linear-gradient(135deg,color-mix(in srgb,var(--accent) 20%,transparent),transparent),var(--surface)">
+      <div style="font-size:34px">📊</div>
+      <div style="font-weight:800;font-size:15px;margin-top:6px">Your stats start here</div>
+      <div class="sub" style="margin:4px 0 12px">Play your first game to fill these in — track accuracy, streaks, and best scores.</div>
+      <button class="btn btn-grad btn-sm" onclick="startGame('classic',{kind:'solo'})" style="margin:0 auto">Play Your First Game 🎯</button>
+    </div>` : '';
+  $('prof-stats').innerHTML=emptyHero+tiles.map(t=>`<div class="stattile glass"><div class="sv">${t[0]}</div><div class="sl">${t[1]}</div></div>`).join('');
   // heatmap — last 17 weeks ending today
   const cells=[]; const now=new Date();
   const start=new Date(now); start.setDate(start.getDate()-(7*16+now.getDay()));
@@ -1494,7 +1512,9 @@ function renderProfile(){
   }
   $('heatmap').innerHTML=cells.join('');
   const days=Object.keys(S.gamesByDate).length;
-  $('heat-sub').textContent=`${S.gamesPlayed} games on ${days} active day${days===1?'':'s'}`;
+  $('heat-sub').textContent = S.gamesPlayed===0
+    ? 'Play daily to grow your activity streak 🌱'
+    : `${S.gamesPlayed} games on ${days} active day${days===1?'':'s'}`;
   const hw=$('heatmap').parentElement; hw.scrollLeft=hw.scrollWidth;
   // achievements
   $('ach-list').innerHTML=ACH.map(a=>{
